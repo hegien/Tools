@@ -36,6 +36,15 @@ import email.generator
 import datetime
 import uuid
 
+# import win32com.client
+# import email
+from email.message import EmailMessage
+from email.generator import BytesGenerator
+# import email.policy
+# from pathlib import Path
+# import uuid
+# import datetime
+
 # --------------------------------------------------------------
 # Outlook-COM-Helper
 # --------------------------------------------------------------
@@ -113,7 +122,7 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
     else:
         alternative = outer   # kein extra Wrapper nötig
 
-    #  –‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑-
+    # –‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑-
     # Plain‑Text‑Teil
     alternative.set_content(plain_body, subtype="plain", charset="utf-8")
 
@@ -157,6 +166,91 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
     buf = BytesIO()
     gen.flatten(outer, buf)
     return buf.getvalue()
+
+# Korrektur wegen Fehler
+def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
+    """
+    Exportiert eine .msg‑Datei zu einer vollwertigen RFC‑822‑Nachricht.
+    Der erzeugte Byte‑String kann unverändert mit Path.write_bytes()
+    als *.eml* abgespeichert werden.
+    """
+    # ---------- Outlook‑Objekt ----------
+    outlook = win32com.client.Dispatch("Outlook.Application")
+    ns = outlook.GetNamespace("MAPI")
+    mail = ns.OpenSharedItem(str(msg_path))
+
+    # ---------- 1. Header‑Informationen ----------
+    headers = {
+        "From": mail.SenderEmailAddress,
+        "To": ", ".join(rec.Address for rec in mail.Recipients),
+        "Subject": mail.Subject,
+        "Date": mail.SentOn.strftime("%a, %d %b %Y %H:%M:%S %z"),
+        "Message-ID": f"<{uuid.uuid4()}@outlook>",
+    }
+
+    # ---------- 2. Body ----------
+    html_body = mail.HTMLBody or ""
+    plain_body = mail.Body or ""
+
+    # ---------- 3. MIME‑Nachricht bauen ----------
+    # Wenn Anhänge vorhanden sind, verwenden wir multipart/mixed,
+    # sonst reicht multipart/alternative.
+    has_attachments = mail.Attachments.Count > 0
+
+    if has_attachments:
+        outer = EmailMessage(policy=email.policy.SMTP)
+        outer.set_type("multipart/mixed")
+        # Der eigentliche textuelle Teil wird als multipart/alternative angehängt
+        alternative = EmailMessage()
+        alternative.set_type("multipart/alternative")
+        outer.attach(alternative)
+    else:
+        outer = EmailMessage(policy=email.policy.SMTP)
+        alternative = outer  # kein extra Wrapper nötig
+
+    # Header eintragen
+    for k, v in headers.items():
+        outer[k] = v
+
+    # ----- Text‑ und HTML‑Teil -----
+    alternative.set_content(plain_body, subtype="plain", charset="utf-8")
+    alternative.add_alternative(html_body, subtype="html", charset="utf-8")
+
+    # ---------- 4. Anhänge einbetten (falls vorhanden) ----------
+    if has_attachments:
+        for i in range(1, mail.Attachments.Count + 1):
+            att = mail.Attachments.Item(i)
+
+            # Temporär in eine Datei schreiben – Outlook kann nur in Dateien exportieren
+            tmp_path = Path.cwd() / f"__tmp_att_{uuid.uuid4().hex}{Path(att.FileName).suffix}"
+            att.SaveAsFile(str(tmp_path))
+
+            # MIME‑Typ rudimentär bestimmen (oder einfach application/octet-stream verwenden)
+            maintype, subtype = ("application", "octet-stream")
+            ext = tmp_path.suffix.lower()
+            if ext in {".jpg", ".jpeg"}:
+                maintype, subtype = ("image", "jpeg")
+            elif ext == ".png":
+                maintype, subtype = ("image", "png")
+            elif ext == ".pdf":
+                maintype, subtype = ("application", "pdf")
+
+            with open(tmp_path, "rb") as fh:
+                outer.add_attachment(
+                    fh.read(),
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=att.FileName,           # Original‑Dateiname im Header
+                )
+            tmp_path.unlink(missing_ok=True)   # Aufräumen
+
+    # ---------- 5. RFC‑822‑Bytes erzeugen ----------
+    buf = BytesIO()
+    gen = BytesGenerator(buf, policy=email.policy.SMTP)   # **Wichtig: outfp übergeben**
+    gen.flatten(outer)
+    return buf.getvalue()
+
+
 
 # --------------------------------------------------------------
 # Hilfsfunktionen fuer Dateinamen
