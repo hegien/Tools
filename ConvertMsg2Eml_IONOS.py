@@ -291,7 +291,7 @@ def _guess_mime_type(suffix: str):
     return ("application", "octet-stream")
 
 # ------------------------------------------------------------
-def msg_to_eml_via_outlook_fixed(msg_path: Path) -> bytes:
+def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
     """
     Exportiert eine .msg‑Datei zu einer vollständig MIME‑konformen
     RFC‑822‑Nachricht, inkl.:
