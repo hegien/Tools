@@ -35,6 +35,7 @@ import email.generator
 # from pathlib import Path
 import datetime
 import uuid
+from io import BytesIO
 
 # import win32com.client
 # import email
