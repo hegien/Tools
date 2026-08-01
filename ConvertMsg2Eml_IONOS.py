@@ -1176,15 +1176,6 @@ import base64
 
 
 # Korrigierte Version, da immer noch Fehler "'list' object has no attribute 'encode'"
-import win32com.client
-import email
-from email.message import EmailMessage
-from email.generator import BytesGenerator
-import email.policy
-from pathlib import Path
-import uuid
-import datetime
-
 # ------------------------------------------------------------
 def _guess_mime_type(suffix: str):
     """Einfacher MIME‑Typ‑Mapper."""
@@ -1232,21 +1223,11 @@ def _to_body(value):
     return str(value)
 
 # ------------------------------------------------------------
-def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
+def msg_to_eml_via_outlook_fixed(msg_path: Path) -> bytes:
     """Exportiert .msg → .eml – komplett robust gegen List‑Erscheinungen."""
     outlook = win32com.client.Dispatch("Outlook.Application")
     ns = outlook.GetNamespace("MAPI")
     mail = ns.OpenSharedItem(str(msg_path))
-
-
-    # Debug Print Anweisungen zur Fehlersuche
-    # print("DEBUG: From‑Typ =", type(mail.SenderEmailAddress))
-    # print("DEBUG: To‑Typ   =", type([rec.Address for rec in mail.Recipients]))
-    # print("DEBUG: Cc‑Typ   =", type(getattr(mail, "CC", "")))
-    # print("DEBUG: Bcc‑Typ  =", type(getattr(mail, "BCC", "")))
-    # print("DEBUG: plain_body‑Typ =", type(mail.Body))
-    # print("DEBUG: html_body‑Typ  =", type(mail.HTMLBody))
-
 
     # -------------------- 1. Header --------------------
     hdr = {
