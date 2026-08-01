@@ -1240,12 +1240,12 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
 
 
     # Debug Print Anweisungen zur Fehlersuche
-    print("DEBUG: From‑Typ =", type(mail.SenderEmailAddress))
-    print("DEBUG: To‑Typ   =", type([rec.Address for rec in mail.Recipients]))
-    print("DEBUG: Cc‑Typ   =", type(getattr(mail, "CC", "")))
-    print("DEBUG: Bcc‑Typ  =", type(getattr(mail, "BCC", "")))
-    print("DEBUG: plain_body‑Typ =", type(mail.Body))
-    print("DEBUG: html_body‑Typ  =", type(mail.HTMLBody))
+    # print("DEBUG: From‑Typ =", type(mail.SenderEmailAddress))
+    # print("DEBUG: To‑Typ   =", type([rec.Address for rec in mail.Recipients]))
+    # print("DEBUG: Cc‑Typ   =", type(getattr(mail, "CC", "")))
+    # print("DEBUG: Bcc‑Typ  =", type(getattr(mail, "BCC", "")))
+    # print("DEBUG: plain_body‑Typ =", type(mail.Body))
+    # print("DEBUG: html_body‑Typ  =", type(mail.HTMLBody))
 
 
     # -------------------- 1. Header --------------------
