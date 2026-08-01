@@ -1014,7 +1014,7 @@ def _ensure_body(value):
     return str(value) if value is not None else ""
 
 # ------------------------------------------------------------
-def msg_to_eml_via_outlook_fixed(msg_path: Path) -> bytes:
+def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
     """Exportiert .msg → .eml inkl. Inline‑Bilder, RTF und Anhänge."""
     outlook = win32com.client.Dispatch("Outlook.Application")
     ns = outlook.GetNamespace("MAPI")
