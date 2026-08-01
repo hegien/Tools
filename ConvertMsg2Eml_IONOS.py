@@ -1446,7 +1446,7 @@ def _to_body(value):
     return str(value)
 
 # ------------------------------------------------------------
-def msg_to_eml_via_outlook_fixed(msg_path: Path) -> bytes:
+def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
     """Exportiert .msg → .eml mit korrekter MIME‑Struktur."""
     outlook = win32com.client.Dispatch("Outlook.Application")
     ns = outlook.GetNamespace("MAPI")
