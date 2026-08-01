@@ -56,6 +56,7 @@ from email.generator import BytesGenerator
 # import datetime
 import base64
 
+# Initiale Version
 # --------------------------------------------------------------
 # Outlook-COM-Helper
 # --------------------------------------------------------------
@@ -95,6 +96,14 @@ import base64
 #     temp_eml_path.unlink(missing_ok=True)
 
 #     return eml_bytes
+
+
+
+
+
+
+
+
 
 # Aus Optimierung für Formatierte Mail
 # def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
@@ -178,6 +187,12 @@ import base64
 #     gen.flatten(outer, buf)
 #     return buf.getvalue()
 
+
+
+
+
+
+
 # Korrektur wegen Fehler
 # def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
 #     """
@@ -260,6 +275,13 @@ import base64
 #     gen = BytesGenerator(buf, policy=email.policy.SMTP)   # **Wichtig: outfp übergeben**
 #     gen.flatten(outer)
 #     return buf.getvalue()
+
+
+
+
+
+
+
 
 # Erweiterung, um auch alle Einbettungen (Bilder, RTF‑Teile, Anlagen) korrekt zu übernehmen
 # ------------------------------------------------------------
@@ -508,6 +530,14 @@ import base64
 #     gen.flatten(outer)
 #     return buf.getvalue()
 
+
+
+
+
+
+
+
+
 # Korrigierte Version wegen Fehler "set_content not valid on multipart"
 # ------------------------------------------------------------
 # Hilfsfunktion: MIME‑Typ anhand Dateiendung bestimmen
@@ -739,10 +769,213 @@ import base64
 
 #     return buf.getvalue()
 
+
+
+
+
+
+
+
 # Korrigierte Version, um die Header Zeolen immer im Kopf des Fensters zu bekommen
 # ------------------------------------------------------------
+# def _guess_mime_type(suffix: str):
+#     """Einfache Zuordnung von Dateiendungen zu MIME‑Typen."""
+#     suffix = suffix.lower()
+#     if suffix in {".jpg", ".jpeg"}:
+#         return ("image", "jpeg")
+#     if suffix == ".png":
+#         return ("image", "png")
+#     if suffix == ".gif":
+#         return ("image", "gif")
+#     if suffix == ".bmp":
+#         return ("image", "bmp")
+#     if suffix == ".svg":
+#         return ("image", "svg+xml")
+#     if suffix == ".pdf":
+#         return ("application", "pdf")
+#     if suffix == ".doc":
+#         return ("application", "msword")
+#     if suffix == ".docx":
+#         return ("application",
+#                 "vnd.openxmlformats-officedocument.wordprocessingml.document")
+#     if suffix == ".xls":
+#         return ("application", "vnd.ms-excel")
+#     if suffix == ".xlsx":
+#         return ("application",
+#                 "vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+#     return ("application", "octet-stream")
+# # ------------------------------------------------------------
+
+# def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
+#     """Exportiert .msg → .eml inkl. Inline‑Bilder, RTF und Anhänge."""
+#     # ---------- 1. Outlook ----------
+#     outlook = win32com.client.Dispatch("Outlook.Application")
+#     ns = outlook.GetNamespace("MAPI")
+#     mail = ns.OpenSharedItem(str(msg_path))
+
+#     # ---------- 2. Header ----------
+#     hdr = {
+#         "From": mail.SenderEmailAddress,
+#         "To": ", ".join(rec.Address for rec in mail.Recipients),
+#         "Subject": mail.Subject,
+#         "Date": mail.SentOn.strftime("%a, %d %b %Y %H:%M:%S %z"),
+#         "Message-ID": f"<{uuid.uuid4()}@outlook>",
+#     }
+
+#     # ---------- 3. Body ----------
+#     html_body = mail.HTMLBody or ""
+#     plain_body = mail.Body or ""
+
+#     # RTF‑Body, wenn die Originalnachricht im Rich‑Text‑Format ist
+#     have_rtf_body = False
+#     rtf_body_bytes = b""
+#     if getattr(mail, "BodyFormat", 1) == 3:            # 3 = olFormatRichText
+#         rtf_body_bytes = mail.Body.encode("utf-8")
+#         have_rtf_body = True
+
+#     # ---------- 4. Attachments sammeln ----------
+#     inline_parts = []   # (cid, maintype, subtype, data, filename)
+#     normal_parts = []   # (maintype, subtype, data, filename)
+#     rtf_inline = None   # (maintype, subtype, data, filename)
+
+#     ATTACH_OLE          = 0x00000008
+#     ATTACH_EMBEDDED_OLE = 0x00000010
+
+#     def _read_att(att):
+#         tmp = Path.cwd() / f"__tmp_{uuid.uuid4().hex}{Path(att.FileName).suffix}"
+#         att.SaveAsFile(str(tmp))
+#         data = tmp.read_bytes()
+#         tmp.unlink(missing_ok=True)
+#         return data
+
+#     for i in range(1, mail.Attachments.Count + 1):
+#         att = mail.Attachments.Item(i)
+
+#         # PR_ATTACHMENT_FLAGS (0x3712) – liefert Flags zu Inline‑ / OLE‑Attachments
+#         try:
+#             flags = att.PropertyAccessor.GetProperty(
+#                 "http://schemas.microsoft.com/mapi/proptag/0x37120003"
+#             )
+#         except Exception:
+#             flags = 0
+
+#         data = _read_att(att)
+#         suffix = Path(att.FileName).suffix
+#         maintype, subtype = _guess_mime_type(suffix)
+
+#         # ---- Inline‑Bilder (nach Endung) ----
+#         if suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"}:
+#             cid = f"<{uuid.uuid4()}@outlook>"
+#             inline_parts.append((cid, maintype, subtype, data, att.FileName))
+
+#             # Ersetze Outlook‑interne cid‑Referenzen (cid:1, cid:2, …)
+#             html_body = html_body.replace(
+#                 f'src="cid:{i}"', f'src="cid:{cid[1:-1]}"'
+#             ).replace(
+#                 f"src='cid:{i}'", f"src='cid:{cid[1:-1]}'"
+#             )
+#             continue
+
+#         # ---- RTF‑Attachment (falls vorhanden) ----
+#         if suffix.lower() == ".rtf":
+#             rtf_inline = (maintype, subtype, data, att.FileName)
+#             have_rtf_body = True
+#             continue
+
+#         # ---- OLE / Embedded‑Message ----
+#         if flags & ATTACH_OLE or flags & ATTACH_EMBEDDED_OLE:
+#             normal_parts.append((maintype, subtype, data, att.FileName))
+#             continue
+
+#         # ---- Alles andere = normaler Anhang ----
+#         normal_parts.append((maintype, subtype, data, att.FileName))
+
+#     # ---------- 5. MIME‑Struktur bauen ----------
+#     # 5.1 Root‑Message (immer existent) – hier kommen die Header hin
+#     root = EmailMessage(policy=email.policy.SMTP)
+#     for k, v in hdr.items():
+#         root[k] = v
+
+#     need_mixed   = len(normal_parts) > 0
+#     need_related = len(inline_parts) > 0 or rtf_inline is not None
+
+#     # 5.2 optionaler multipart/mixed‑Container (nur bei normalen Anhängen)
+#     if need_mixed:
+#         root.set_type("multipart/mixed")
+#         container = root                     # wir hängen alles an dieses Objekt
+#     else:
+#         container = root                     # kein mixed → root ist unser Container
+
+#     # 5.3 optionaler multipart/related‑Container (für Inline‑Bilder/RTF)
+#     if need_related:
+#         related = EmailMessage()
+#         related.set_type("multipart/related")
+#         # Wenn wir bereits einen multipart/mixed‑Container haben,
+#         # hängen wir `related` dort an, sonst wird er das neue Container‑Objekt.
+#         container.attach(related)
+#         container = related                  # ab jetzt hängen wir an `related` an
+#         # (für den Fall, dass kein mixed existiert, ist `container` jetzt `related`)
+
+#     # 5.4 multipart/alternative – enthält plain, html und ggf. rtf
+#     alternative = EmailMessage()             # kein set_type, wird durch set_content()
+#                                             # automatisch zu multipart/alternative
+#     alternative.set_content(plain_body, subtype="plain", charset="utf-8")
+#     alternative.add_alternative(html_body, subtype="html", charset="utf-8")
+#     if have_rtf_body and rtf_body_bytes:
+#         alternative.add_alternative(
+#             rtf_body_bytes.decode("utf-8", errors="ignore"),
+#             subtype="rtf",
+#             charset="utf-8",
+#         )
+#     # Alternative in den derzeitigen Container (mixed / related / root) einhängen
+#     container.attach(alternative)
+
+#     # 5.5 Inline‑Bilder (nur wenn we have_related == True)
+#     if need_related:
+#         for cid, mtype, stype, data, filename in inline_parts:
+#             related.add_related(
+#                 data,
+#                 maintype=mtype,
+#                 subtype=stype,
+#                 cid=cid,               # <…>
+#                 filename=filename,
+#                 disposition="inline",
+#             )
+#         if rtf_inline:
+#             mtype, stype, data, filename = rtf_inline
+#             related.add_related(
+#                 data,
+#                 maintype=mtype,
+#                 subtype=stype,
+#                 filename=filename,
+#                 disposition="inline",
+#             )
+
+#     # 5.6 Normale Anhänge (nur wenn need_mixed == True)
+#     if need_mixed:
+#         for mtype, stype, data, filename in normal_parts:
+#             root.add_attachment(
+#                 data,
+#                 maintype=mtype,
+#                 subtype=stype,
+#                 filename=filename,
+#                 disposition="attachment",
+#             )
+
+#     # ---------- 6. Bytes erzeugen ----------
+#     buf = BytesIO()
+#     gen = BytesGenerator(buf, policy=email.policy.SMTP)   # outfp = buf
+#     gen.flatten(root)
+#     return buf.getvalue()
+
+
+
+
+
+
+# Korrigierte Version wegen Fehler "'list' object has no attribute 'encode'"
+# ------------------------------------------------------------
 def _guess_mime_type(suffix: str):
-    """Einfache Zuordnung von Dateiendungen zu MIME‑Typen."""
     suffix = suffix.lower()
     if suffix in {".jpg", ".jpeg"}:
         return ("image", "jpeg")
@@ -767,36 +1000,51 @@ def _guess_mime_type(suffix: str):
         return ("application",
                 "vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     return ("application", "octet-stream")
-# ------------------------------------------------------------
 
-def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
+def _ensure_str(value):
+    """Konvertiert Listen/Tuples zu kommagetrennten Strings."""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value)
+    return str(value) if value is not None else ""
+
+def _ensure_body(value):
+    """Stellt sicher, dass der Body ein einfacher String ist."""
+    if isinstance(value, (list, tuple)):
+        return "\n".join(str(v) for v in value)
+    return str(value) if value is not None else ""
+
+# ------------------------------------------------------------
+def msg_to_eml_via_outlook_fixed(msg_path: Path) -> bytes:
     """Exportiert .msg → .eml inkl. Inline‑Bilder, RTF und Anhänge."""
-    # ---------- 1. Outlook ----------
     outlook = win32com.client.Dispatch("Outlook.Application")
     ns = outlook.GetNamespace("MAPI")
     mail = ns.OpenSharedItem(str(msg_path))
 
-    # ---------- 2. Header ----------
+    # ----- 1. Header (immer Strings) -----
     hdr = {
-        "From": mail.SenderEmailAddress,
-        "To": ", ".join(rec.Address for rec in mail.Recipients),
-        "Subject": mail.Subject,
+        "From": _ensure_str(mail.SenderEmailAddress),
+        "To":   _ensure_str([rec.Address for rec in mail.Recipients]),
+        "Subject": _ensure_str(mail.Subject),
         "Date": mail.SentOn.strftime("%a, %d %b %Y %H:%M:%S %z"),
         "Message-ID": f"<{uuid.uuid4()}@outlook>",
     }
+    # Optional Cc / Bcc (falls vorhanden)
+    if hasattr(mail, "CC"):
+        hdr["Cc"] = _ensure_str(mail.CC)
+    if hasattr(mail, "BCC"):
+        hdr["Bcc"] = _ensure_str(mail.BCC)
 
-    # ---------- 3. Body ----------
-    html_body = mail.HTMLBody or ""
-    plain_body = mail.Body or ""
+    # ----- 2. Body (plain, html, ggf. rtf) -----
+    plain_body = _ensure_body(mail.Body)
+    html_body  = _ensure_body(mail.HTMLBody)
 
-    # RTF‑Body, wenn die Originalnachricht im Rich‑Text‑Format ist
     have_rtf_body = False
     rtf_body_bytes = b""
-    if getattr(mail, "BodyFormat", 1) == 3:            # 3 = olFormatRichText
-        rtf_body_bytes = mail.Body.encode("utf-8")
+    if getattr(mail, "BodyFormat", 1) == 3:        # 3 = Rich‑Text‑Format
+        rtf_body_bytes = _ensure_body(mail.Body).encode("utf-8")
         have_rtf_body = True
 
-    # ---------- 4. Attachments sammeln ----------
+    # ----- 3. Attachments sammeln -----
     inline_parts = []   # (cid, maintype, subtype, data, filename)
     normal_parts = []   # (maintype, subtype, data, filename)
     rtf_inline = None   # (maintype, subtype, data, filename)
@@ -814,7 +1062,6 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
     for i in range(1, mail.Attachments.Count + 1):
         att = mail.Attachments.Item(i)
 
-        # PR_ATTACHMENT_FLAGS (0x3712) – liefert Flags zu Inline‑ / OLE‑Attachments
         try:
             flags = att.PropertyAccessor.GetProperty(
                 "http://schemas.microsoft.com/mapi/proptag/0x37120003"
@@ -826,12 +1073,11 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
         suffix = Path(att.FileName).suffix
         maintype, subtype = _guess_mime_type(suffix)
 
-        # ---- Inline‑Bilder (nach Endung) ----
+        # ----- Inline‑Bilder -----
         if suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"}:
             cid = f"<{uuid.uuid4()}@outlook>"
             inline_parts.append((cid, maintype, subtype, data, att.FileName))
-
-            # Ersetze Outlook‑interne cid‑Referenzen (cid:1, cid:2, …)
+            # Outlook benutzt manchmal src="cid:1", src="cid:2" …
             html_body = html_body.replace(
                 f'src="cid:{i}"', f'src="cid:{cid[1:-1]}"'
             ).replace(
@@ -839,22 +1085,21 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
             )
             continue
 
-        # ---- RTF‑Attachment (falls vorhanden) ----
+        # ----- RTF‑Attachment (wenn vorhanden) -----
         if suffix.lower() == ".rtf":
             rtf_inline = (maintype, subtype, data, att.FileName)
             have_rtf_body = True
             continue
 
-        # ---- OLE / Embedded‑Message ----
+        # ----- OLE / Embedded‑Message -----
         if flags & ATTACH_OLE or flags & ATTACH_EMBEDDED_OLE:
             normal_parts.append((maintype, subtype, data, att.FileName))
             continue
 
-        # ---- Alles andere = normaler Anhang ----
+        # ----- Alle übrigen Anhänge -----
         normal_parts.append((maintype, subtype, data, att.FileName))
 
-    # ---------- 5. MIME‑Struktur bauen ----------
-    # 5.1 Root‑Message (immer existent) – hier kommen die Header hin
+    # ----- 4. MIME‑Struktur bauen -----
     root = EmailMessage(policy=email.policy.SMTP)
     for k, v in hdr.items():
         root[k] = v
@@ -862,26 +1107,22 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
     need_mixed   = len(normal_parts) > 0
     need_related = len(inline_parts) > 0 or rtf_inline is not None
 
-    # 5.2 optionaler multipart/mixed‑Container (nur bei normalen Anhängen)
+    # 4.1 optional multipart/mixed
     if need_mixed:
         root.set_type("multipart/mixed")
-        container = root                     # wir hängen alles an dieses Objekt
+        container = root
     else:
-        container = root                     # kein mixed → root ist unser Container
+        container = root
 
-    # 5.3 optionaler multipart/related‑Container (für Inline‑Bilder/RTF)
+    # 4.2 optional multipart/related
     if need_related:
         related = EmailMessage()
         related.set_type("multipart/related")
-        # Wenn wir bereits einen multipart/mixed‑Container haben,
-        # hängen wir `related` dort an, sonst wird er das neue Container‑Objekt.
         container.attach(related)
-        container = related                  # ab jetzt hängen wir an `related` an
-        # (für den Fall, dass kein mixed existiert, ist `container` jetzt `related`)
+        container = related           # ab jetzt hängen wir an `related` an
 
-    # 5.4 multipart/alternative – enthält plain, html und ggf. rtf
-    alternative = EmailMessage()             # kein set_type, wird durch set_content()
-                                            # automatisch zu multipart/alternative
+    # 4.3 multipart/alternative (plain, html, optional rtf)
+    alternative = EmailMessage()      # kein set_type – wird automatisch multipart/alternative
     alternative.set_content(plain_body, subtype="plain", charset="utf-8")
     alternative.add_alternative(html_body, subtype="html", charset="utf-8")
     if have_rtf_body and rtf_body_bytes:
@@ -890,17 +1131,16 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
             subtype="rtf",
             charset="utf-8",
         )
-    # Alternative in den derzeitigen Container (mixed / related / root) einhängen
     container.attach(alternative)
 
-    # 5.5 Inline‑Bilder (nur wenn we have_related == True)
+    # 4.4 Inline‑Bilder & evtl. RTF‑Attachment in multipart/related einbetten
     if need_related:
         for cid, mtype, stype, data, filename in inline_parts:
             related.add_related(
                 data,
                 maintype=mtype,
                 subtype=stype,
-                cid=cid,               # <…>
+                cid=cid,
                 filename=filename,
                 disposition="inline",
             )
@@ -914,7 +1154,7 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
                 disposition="inline",
             )
 
-    # 5.6 Normale Anhänge (nur wenn need_mixed == True)
+    # 4.5 Normale Anhänge (unter multipart/mixed)
     if need_mixed:
         for mtype, stype, data, filename in normal_parts:
             root.add_attachment(
@@ -925,13 +1165,12 @@ def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
                 disposition="attachment",
             )
 
-    # ---------- 6. Bytes erzeugen ----------
+    # ----- 5. Bytes erzeugen -----
+    from io import BytesIO
     buf = BytesIO()
     gen = BytesGenerator(buf, policy=email.policy.SMTP)   # outfp = buf
     gen.flatten(root)
     return buf.getvalue()
-
-
 
 
 # --------------------------------------------------------------
