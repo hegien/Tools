@@ -26,46 +26,137 @@ import os
 import sys
 from pathlib import Path
 
+
+# Aus Optimierung für Formatierte Mail
+import win32com.client
+import email
+import email.policy
+import email.generator
+# from pathlib import Path
+import datetime
+import uuid
+
 # --------------------------------------------------------------
 # Outlook-COM-Helper
 # --------------------------------------------------------------
+# def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
+#     """
+#     Oeffnet eine *.msg*-Datei mit Outlook und gibt den Inhalt
+#     als MIME-Message (bytes) zurueck, die anschliessend als *.eml*
+#     gespeichert werden kann.
+
+#     Parameters
+#     ----------
+#     msg_path: pathlib.Path
+#         Vollstaendiger Pfad zur *.msg*-Datei.
+
+#     Returns
+#     -------
+#     bytes
+#         EML-Daten im RFC-822-Format.
+#     """
+#     import win32com.client  # Teil von pywin32
+
+#     # Outlook-Instanz holen (oder neue starten)
+#     outlook = win32com.client.Dispatch("Outlook.Application")
+#     namespace = outlook.GetNamespace("MAPI")
+
+#     # Die .msg-Datei als MailItem laden
+#     mail_item = namespace.OpenSharedItem(str(msg_path))
+
+#     # Die MailItem-Methode `SaveAs` mit Format 5 (= olRFC822) erzeugt EML-Daten.
+#     # Wir speichern zunaechst in einen temporaeren Pfad und lesen die Bytes ein,
+#     # weil Outlook selbst nur in Dateien schreibt.
+#     temp_eml_path = msg_path.with_suffix(".tmp_eml")
+#     mail_item.SaveAs(str(temp_eml_path), 5)  # 5 == olRFC822
+
+#     # Dateiinhalt einlesen und temporaere Datei loeschen
+#     eml_bytes = temp_eml_path.read_bytes()
+#     temp_eml_path.unlink(missing_ok=True)
+
+#     return eml_bytes
+
+# Aus Optimierung für Formatierte Mail
 def msg_to_eml_via_outlook(msg_path: Path) -> bytes:
-    """
-    Oeffnet eine *.msg*-Datei mit Outlook und gibt den Inhalt
-    als MIME-Message (bytes) zurueck, die anschliessend als *.eml*
-    gespeichert werden kann.
-
-    Parameters
-    ----------
-    msg_path: pathlib.Path
-        Vollstaendiger Pfad zur *.msg*-Datei.
-
-    Returns
-    -------
-    bytes
-        EML-Daten im RFC-822-Format.
-    """
-    import win32com.client  # Teil von pywin32
-
-    # Outlook-Instanz holen (oder neue starten)
+    """Exportiert eine .msg‑Datei zu einer voll‑wertigen RFC‑822‑Nachricht."""
     outlook = win32com.client.Dispatch("Outlook.Application")
-    namespace = outlook.GetNamespace("MAPI")
+    ns = outlook.GetNamespace("MAPI")
+    mail = ns.OpenSharedItem(str(msg_path))
 
-    # Die .msg-Datei als MailItem laden
-    mail_item = namespace.OpenSharedItem(str(msg_path))
+    # ---------- 1. Daten aus dem MailItem holen ----------
+    # Header‑Infos
+    headers = {
+        "From": mail.SenderEmailAddress,
+        "To": ", ".join(mail.Recipients[i].Address for i in range(mail.Recipients.Count)),
+        "Subject": mail.Subject,
+        "Date": mail.SentOn.strftime("%a, %d %b %Y %H:%M:%S %z"),
+        "Message-ID": f"<{uuid.uuid4()}@outlook>",
+    }
 
-    # Die MailItem-Methode `SaveAs` mit Format 5 (= olRFC822) erzeugt EML-Daten.
-    # Wir speichern zunaechst in einen temporaeren Pfad und lesen die Bytes ein,
-    # weil Outlook selbst nur in Dateien schreibt.
-    temp_eml_path = msg_path.with_suffix(".tmp_eml")
-    mail_item.SaveAs(str(temp_eml_path), 5)  # 5 == olRFC822
+    # Body – Outlook liefert HTML über .HTMLBody
+    html_body = mail.HTMLBody or ""
+    # Optional: Plain‑Text‑Fallback via .Body (Outlook liefert bereits reinen Text)
+    plain_body = mail.Body or ""
 
-    # Dateiinhalt einlesen und temporaere Datei loeschen
-    eml_bytes = temp_eml_path.read_bytes()
-    temp_eml_path.unlink(missing_ok=True)
+    # ---------- 2. MIME‑Nachricht zusammenbauen ----------
+    # multipart/alternative (Plain‑Text + HTML)
+    outer = email.message.EmailMessage(policy=email.policy.SMTP)
+    for k, v in headers.items():
+        outer[k] = v
 
-    return eml_bytes
+    # Wenn Anhänge existieren, benutzen wir multipart/mixed → inner = multipart/alternative
+    has_attachments = mail.Attachments.Count > 0
+    if has_attachments:
+        outer.set_type("multipart/mixed")
+        alternative = email.message.EmailMessage()
+        alternative.set_type("multipart/alternative")
+    else:
+        alternative = outer   # kein extra Wrapper nötig
 
+    #  –‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑‑-
+    # Plain‑Text‑Teil
+    alternative.set_content(plain_body, subtype="plain", charset="utf-8")
+
+    # HTML‑Teil (hier wird charset explizit auf utf‑8 gesetzt)
+    alternative.add_alternative(html_body, subtype="html", charset="utf-8")
+
+    # Wenn wir einen multipart/mixed‑Wrapper benötigen, hängen wir das alternative‑Objekt an:
+    if has_attachments:
+        outer.attach(alternative)
+
+        # ---------- 3. Anhänge einbetten ----------
+        for i in range(1, mail.Attachments.Count + 1):
+            att = mail.Attachments.Item(i)
+
+            # Temporär sichern, weil Outlook nur in Dateien schreiben kann
+            tmp_path = Path.cwd() / f"__tmp_att_{uuid.uuid4().hex}"
+            att.SaveAsFile(str(tmp_path))
+
+            # Erkennen des MIME‑Typs (einfacher Ansatz: anhand der Extension)
+            maintype, subtype = ("application", "octet-stream")
+            if tmp_path.suffix.lower() in {".jpg", ".jpeg"}:
+                maintype, subtype = ("image", "jpeg")
+            elif tmp_path.suffix.lower() == ".png":
+                maintype, subtype = ("image", "png")
+            elif tmp_path.suffix.lower() == ".pdf":
+                maintype, subtype = ("application", "pdf")
+
+            with open(tmp_path, "rb") as fh:
+                outer.add_attachment(
+                    fh.read(),
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=att.FileName,          # Original‑Dateiname
+                )
+            tmp_path.unlink(missing_ok=True)
+
+    # ---------- 4. RFC‑822‑Bytes erzeugen ----------
+    # Der EmailMessage‑Generator gibt korrekt formatierte Zeilenumbrüche (\r\n) zurück.
+    gen = email.generator.BytesGenerator(policy=email.policy.SMTP)
+    from io import BytesIO
+    buf = BytesIO()
+    gen.flatten(outer, buf)
+    return buf.getvalue()
 
 # --------------------------------------------------------------
 # Hilfsfunktionen fuer Dateinamen
